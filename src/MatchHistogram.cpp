@@ -20,197 +20,199 @@
 
 #include <VapourSynth.h>
 #include <VSHelper.h>
+// #include "VapourSynth.h"
+// #include "VSHelper.h"
 
 
-static inline int IntDiv(int x, int y) {
-    return ((x < 0) ^ (y < 0)) ? ((x - (y >> 1)) / y)
-                               : ((x + (y >> 1)) / y);
-}
+// static inline int IntDiv(int x, int y) {
+//     return ((x < 0) ^ (y < 0)) ? ((x - (y >> 1)) / y)
+//                                : ((x + (y >> 1)) / y);
+// }
 
 
-static inline void fillPlane(uint8_t *data, int width, int height, int stride, int value) {
-    for (int y = 0; y < height; y++) {
-        memset(data, value, width);
+// static inline void fillPlane(uint8_t *data, int width, int height, int stride, int value) {
+//     for (int y = 0; y < height; y++) {
+//         memset(data, value, width);
 
-        data += stride;
-    }
-}
+//         data += stride;
+//     }
+// }
 
 
-class CurveData {
-private:
-    unsigned int sum[256];
-    unsigned int div[256];
-    unsigned char curve[256];
+// class CurveData {
+// private:
+//     unsigned int sum[256];
+//     unsigned int div[256];
+//     unsigned char curve[256];
 
-public:
-    void Create(const uint8_t *ptr1, const uint8_t *ptr2, int width, int height, int stride, bool raw, int smoothing_window) {
-        // Clear data
-        for (int i = 0; i < 256; i++) {
-            sum[i] = 0;
-            div[i] = 0;
-        }
+// public:
+//     void Create(const uint8_t *ptr1, const uint8_t *ptr2, int width, int height, int stride, bool raw, int smoothing_window) {
+//         // Clear data
+//         for (int i = 0; i < 256; i++) {
+//             sum[i] = 0;
+//             div[i] = 0;
+//         }
 
-        // Populate data
-        for (int h = 0; h < height; h++) {
-            for (int w = 0; w < width; w++) {
-                sum[ptr1[w]] += ptr2[w];
-                div[ptr1[w]] += 1;
-            }
-            ptr1 += stride;
-            ptr2 += stride;
-        }
+//         // Populate data
+//         for (int h = 0; h < height; h++) {
+//             for (int w = 0; w < width; w++) {
+//                 sum[ptr1[w]] += ptr2[w];
+//                 div[ptr1[w]] += 1;
+//             }
+//             ptr1 += stride;
+//             ptr2 += stride;
+//         }
 
-        // Raw curve
-        for (int i = 0; i < 256; i++) {
-            if (div[i] != 0) {
-                curve[i] = IntDiv(sum[i], div[i]);
-            } else {
-                curve[i] = 0;
-            }
-        }
+//         // Raw curve
+//         for (int i = 0; i < 256; i++) {
+//             if (div[i] != 0) {
+//                 curve[i] = IntDiv(sum[i], div[i]);
+//             } else {
+//                 curve[i] = 0;
+//             }
+//         }
 
-        if (!raw) {
-            int flat = -1;
-            for (int i = 0; i < 256; i++) {
-                if (div[i] != 0) {
-                    if (flat == -1) {
-                        flat = i;
-                    } else {
-                        flat = -1;
-                        break;
-                    }
-                }
-            }
+//         if (!raw) {
+//             int flat = -1;
+//             for (int i = 0; i < 256; i++) {
+//                 if (div[i] != 0) {
+//                     if (flat == -1) {
+//                         flat = i;
+//                     } else {
+//                         flat = -1;
+//                         break;
+//                     }
+//                 }
+//             }
 
-            if (flat != -1) {
-                // Uniform color
-                for (int i = 0; i < 256; i++) {
-                    curve[i] = curve[flat];
-                }
-            } else {
-                for (int i = 0; i < 256; i++) {
-                    if (div[i] == 0) {
-                        int prev = -1;
-                        for (int p = i - 1; p >= 0; p--) {
-                            if (div[p] != 0) {
-                                prev = p;
-                                break;
-                            }
-                        }
+//             if (flat != -1) {
+//                 // Uniform color
+//                 for (int i = 0; i < 256; i++) {
+//                     curve[i] = curve[flat];
+//                 }
+//             } else {
+//                 for (int i = 0; i < 256; i++) {
+//                     if (div[i] == 0) {
+//                         int prev = -1;
+//                         for (int p = i - 1; p >= 0; p--) {
+//                             if (div[p] != 0) {
+//                                 prev = p;
+//                                 break;
+//                             }
+//                         }
 
-                        int next = -1;
-                        for (int n = i + 1; n < 256; n++) {
-                            if (div[n] != 0) {
-                                next = n;
-                                break;
-                            }
-                        }
+//                         int next = -1;
+//                         for (int n = i + 1; n < 256; n++) {
+//                             if (div[n] != 0) {
+//                                 next = n;
+//                                 break;
+//                             }
+//                         }
 
-                        // Fill missing
-                        if (prev != -1 && next != -1) {
-                            curve[i] = std::min(std::max(curve[prev] + IntDiv((i - prev) * (curve[next] - curve[prev]), (next - prev)), 0), 255);
-                            sum[i] = curve[i];
-                            div[i] = 1;
-                        }
-                    }
-                }
+//                         // Fill missing
+//                         if (prev != -1 && next != -1) {
+//                             curve[i] = std::min(std::max(curve[prev] + IntDiv((i - prev) * (curve[next] - curve[prev]), (next - prev)), 0), 255);
+//                             sum[i] = curve[i];
+//                             div[i] = 1;
+//                         }
+//                     }
+//                 }
 
-                while (div[0] == 0 || div[255] == 0) {
-                    if (div[0] == 0) {
-                        int first = -1;
-                        for (int f = 0; f < 256; f++) {
-                            if (div[f] != 0) {
-                                first = f;
-                                break;
-                            }
-                        }
+//                 while (div[0] == 0 || div[255] == 0) {
+//                     if (div[0] == 0) {
+//                         int first = -1;
+//                         for (int f = 0; f < 256; f++) {
+//                             if (div[f] != 0) {
+//                                 first = f;
+//                                 break;
+//                             }
+//                         }
 
-                        // Extend bottom
-                        for (int i = 0; i < first; i++) {
-                            if (first * 2 - i <= 255) {
-                                if (div[first * 2 - i] != 0) {
-                                    curve[i] = std::min(std::max(curve[first] * 2 - curve[first * 2 - i], 0), 255);
-                                    sum[i] = curve[i];
-                                    div[i] = 1;
-                                }
-                            }
-                        }
-                    }
+//                         // Extend bottom
+//                         for (int i = 0; i < first; i++) {
+//                             if (first * 2 - i <= 255) {
+//                                 if (div[first * 2 - i] != 0) {
+//                                     curve[i] = std::min(std::max(curve[first] * 2 - curve[first * 2 - i], 0), 255);
+//                                     sum[i] = curve[i];
+//                                     div[i] = 1;
+//                                 }
+//                             }
+//                         }
+//                     }
 
-                    if (div[255] == 0) {
-                        int last = -1;
-                        for (int l = 255; l >= 0; l--) {
-                            if (div[l] != 0) {
-                                last = l;
-                                break;
-                            }
-                        }
+//                     if (div[255] == 0) {
+//                         int last = -1;
+//                         for (int l = 255; l >= 0; l--) {
+//                             if (div[l] != 0) {
+//                                 last = l;
+//                                 break;
+//                             }
+//                         }
 
-                        // Extend top
-                        for (int i = 255; i > last; i--) {
-                            if (last * 2 - i >= 0) {
-                                if (div[last * 2 - i] != 0) {
-                                    curve[i] = std::min(std::max(curve[last] * 2 - curve[last * 2 - i], 0), 255);
-                                    sum[i] = curve[i];
-                                    div[i] = 1;
-                                }
-                            }
-                        }
-                    }
-                }
+//                         // Extend top
+//                         for (int i = 255; i > last; i--) {
+//                             if (last * 2 - i >= 0) {
+//                                 if (div[last * 2 - i] != 0) {
+//                                     curve[i] = std::min(std::max(curve[last] * 2 - curve[last * 2 - i], 0), 255);
+//                                     sum[i] = curve[i];
+//                                     div[i] = 1;
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
 
-                // Smooth curve
-                if (smoothing_window > 0) {
-                    for (int i = 0; i < 256; i++) {
-                        sum[i] = 0;
-                        div[i] = 0;
+//                 // Smooth curve
+//                 if (smoothing_window > 0) {
+//                     for (int i = 0; i < 256; i++) {
+//                         sum[i] = 0;
+//                         div[i] = 0;
 
-                        for (int j = -smoothing_window; j < +smoothing_window; j++) {
-                            if (i + j >= 0 && i + j < 256) {
-                                sum[i] += curve[i + j];
-                                div[i] += 1;
-                            }
-                        }
-                    }
-                }
+//                         for (int j = -smoothing_window; j < +smoothing_window; j++) {
+//                             if (i + j >= 0 && i + j < 256) {
+//                                 sum[i] += curve[i + j];
+//                                 div[i] += 1;
+//                             }
+//                         }
+//                     }
+//                 }
 
-                for (int i = 0; i < 256; i++) {
-                    curve[i] = IntDiv(sum[i], div[i]);
-                }
-            }
-        }
-    }
+//                 for (int i = 0; i < 256; i++) {
+//                     curve[i] = IntDiv(sum[i], div[i]);
+//                 }
+//             }
+//         }
+//     }
 
-    void Process(const uint8_t *srcp, uint8_t *dstp, int width, int height, int stride) {
-        for (int h = 0; h < height; h++) {
-            for (int w = 0; w < width; w++)
-                dstp[w] = curve[srcp[w]];
+//     void Process(const uint8_t *srcp, uint8_t *dstp, int width, int height, int stride) {
+//         for (int h = 0; h < height; h++) {
+//             for (int w = 0; w < width; w++)
+//                 dstp[w] = curve[srcp[w]];
 
-            srcp += stride;
-            dstp += stride;
-        }
-    }
+//             srcp += stride;
+//             dstp += stride;
+//         }
+//     }
 
-    void Show(uint8_t *ptr, int stride, uint8_t color) {
-        for (int i = 0; i < 256; i++)
-            ptr[((255 - curve[i]) * stride) + i] = color;
-    }
+//     void Show(uint8_t *ptr, int stride, uint8_t color) {
+//         for (int i = 0; i < 256; i++)
+//             ptr[((255 - curve[i]) * stride) + i] = color;
+//     }
 
-    void Debug(uint8_t *ptr, int stride) {
-        for (int i = 0; i < 256; i++) {
-            for (int j = 0; j <= curve[i]; j++) {
-                ptr[((255 - j) * stride) + i] = curve[i];
-            }
-        }
+//     void Debug(uint8_t *ptr, int stride) {
+//         for (int i = 0; i < 256; i++) {
+//             for (int j = 0; j <= curve[i]; j++) {
+//                 ptr[((255 - j) * stride) + i] = curve[i];
+//             }
+//         }
 
-        for (int i = 0; i < 256; i++) {
-            if (curve[i] > 0) {
-                ptr[((255 - curve[i]) * stride) + i] = 255;
-            }
-        }
-    }
-};
+//         for (int i = 0; i < 256; i++) {
+//             if (curve[i] > 0) {
+//                 ptr[((255 - curve[i]) * stride) + i] = 255;
+//             }
+//         }
+//     }
+// };
 
 
 struct MatchHistogramData {
@@ -252,32 +254,32 @@ static const VSFrameRef *VS_CC MatchHistogramGetFrame(int n, int activationReaso
 
         VSFrameRef *dst;
 
-        CurveData curve;
+        // CurveData curve;
 
         if (d->debug) {
-            dst = vsapi->newVideoFrame(d->vi.format, d->vi.width, d->vi.height, src1, core);
+            // dst = vsapi->newVideoFrame(d->vi.format, d->vi.width, d->vi.height, src1, core);
 
-            for (int plane = 0; plane < d->vi.format->numPlanes; plane++) {
-                uint8_t *dstp = vsapi->getWritePtr(dst, plane);
-                int dst_width = vsapi->getFrameWidth(dst, plane);
-                int dst_height = vsapi->getFrameHeight(dst, plane);
-                int dst_stride = vsapi->getStride(dst, plane);
+            // for (int plane = 0; plane < d->vi.format->numPlanes; plane++) {
+            //     uint8_t *dstp = vsapi->getWritePtr(dst, plane);
+            //     int dst_width = vsapi->getFrameWidth(dst, plane);
+            //     int dst_height = vsapi->getFrameHeight(dst, plane);
+            //     int dst_stride = vsapi->getStride(dst, plane);
 
-                fillPlane(dstp, dst_width, dst_height, dst_stride, plane ? 128 : 0);
+            //     fillPlane(dstp, dst_width, dst_height, dst_stride, plane ? 128 : 0);
 
-                if (!d->process[plane])
-                    continue;
+            //     if (!d->process[plane])
+            //         continue;
 
-                const uint8_t *src1p = vsapi->getReadPtr(src1, plane);
-                const uint8_t *src2p = vsapi->getReadPtr(src2, plane);
-                int src_width = vsapi->getFrameWidth(src1, plane);
-                int src_height = vsapi->getFrameHeight(src1, plane);
-                int src_stride = vsapi->getStride(src1, plane);
+            //     const uint8_t *src1p = vsapi->getReadPtr(src1, plane);
+            //     const uint8_t *src2p = vsapi->getReadPtr(src2, plane);
+            //     int src_width = vsapi->getFrameWidth(src1, plane);
+            //     int src_height = vsapi->getFrameHeight(src1, plane);
+            //     int src_stride = vsapi->getStride(src1, plane);
 
-                curve.Create(src1p, src2p, src_width, src_height, src_stride, d->raw, d->smoothing_window);
-                curve.Debug(vsapi->getWritePtr(dst, 0),
-                            vsapi->getStride(dst, 0));
-            }
+            //     curve.Create(src1p, src2p, src_width, src_height, src_stride, d->raw, d->smoothing_window);
+            //     curve.Debug(vsapi->getWritePtr(dst, 0),
+            //                 vsapi->getStride(dst, 0));
+            // }
         } else { // Not debug
             const VSFrameRef *src3 = vsapi->getFrameFilter(n, d->clip3, frameCtx);
 
@@ -291,39 +293,218 @@ static const VSFrameRef *VS_CC MatchHistogramGetFrame(int n, int activationReaso
 
             dst = vsapi->newVideoFrame2(d->vi.format, d->vi.width, d->vi.height, plane_src, planes, src3, core);
 
-            uint8_t show_colors[3] = { 235, 160, 96 };
+            // uint8_t show_colors[3] = { 235, 160, 96 };
 
             for (int plane = 0; plane < d->vi.format->numPlanes; plane++) {
-                uint8_t *dstp = vsapi->getWritePtr(dst, plane);
-                int src3dst_stride = vsapi->getStride(dst, plane);
-
                 if (d->process[plane]) {
-                    const uint8_t *src1p = vsapi->getReadPtr(src1, plane);
-                    const uint8_t *src2p = vsapi->getReadPtr(src2, plane);
-                    const uint8_t *src3p = vsapi->getReadPtr(src3, plane);
+
+                    bool raw = d->raw;
+                    int smoothing_window = d->smoothing_window;
+
+                    uint16_t *dstp = (uint16_t*) vsapi->getWritePtr(dst, plane);
+                    int src3dst_stride = vsapi->getStride(dst, plane) / sizeof(uint16_t);
+
+                    const uint16_t *src1p = (uint16_t*) vsapi->getReadPtr(src1, plane);
+                    const uint16_t *src2p = (uint16_t*) vsapi->getReadPtr(src2, plane);
+                    const uint16_t *src3p = (uint16_t*) vsapi->getReadPtr(src3, plane);
                     int src12_width = vsapi->getFrameWidth(src1, plane);
                     int src12_height = vsapi->getFrameHeight(src1, plane);
-                    int src12_stride = vsapi->getStride(src1, plane);
+                    int src12_stride = vsapi->getStride(src1, plane) / sizeof(uint16_t);
                     int src3dst_width = vsapi->getFrameWidth(src3, plane);
                     int src3dst_height = vsapi->getFrameHeight(src3, plane);
 
-                    curve.Create(src1p, src2p, src12_width, src12_height, src12_stride, d->raw, d->smoothing_window);
-                    curve.Process(src3p, dstp, src3dst_width, src3dst_height, src3dst_stride);
-                }
+                    const uint16_t *src1p_bak = src1p;
 
-                if (d->show) {
-                    fillPlane(dstp,
-                              256 >> (plane ? d->vi.format->subSamplingW : 0),
-                              256 >> (plane ? d->vi.format->subSamplingH : 0),
-                              src3dst_stride,
-                              plane ? 128 : 16);
+                    // curve.Create(src1p, src2p, src12_width, src12_height, src12_stride, d->raw, d->smoothing_window);
+                    // curve.Process(src3p, dstp, src3dst_width, src3dst_height, src3dst_stride);
 
-                    if (d->process[plane]) {
-                        curve.Show(vsapi->getWritePtr(dst, 0),
-                                   vsapi->getStride(dst, 0),
-                                   show_colors[plane]);
+                    unsigned int sum[65536];
+                    unsigned int div[65536];
+                    unsigned int curve[65536];
+
+                    // Clear data
+                    // for (int i = 0; i < 65536; i++) {
+                    //     sum[i] = 0;
+                    //     div[i] = 0;
+                    //     curve[i] = 0;
+                    // }
+                    memset(sum, 0, sizeof(sum));
+                    memset(div, 0, sizeof(div));
+                    memset(curve, 0, sizeof(curve));
+
+                    // Populate data
+                    for (int h = 0; h < src12_height; h++) {
+                        for (int w = 0; w < src12_width; w++) {
+                            div[src1p[w]] += 1;
+                        }
+                        src1p += src12_stride;
+                    }
+                    src1p = src1p_bak;
+
+                    // Raw curve
+                    for (int h = 0; h < src12_height; h++) {
+                        for (int w = 0; w < src12_width; w++) {
+                            sum[src1p[w]] += src2p[w];
+                            curve[src1p[w]] += sum[src1p[w]] / div[src1p[w]];
+                            sum[src1p[w]] %= div[src1p[w]];
+                        }
+                        src1p += src12_stride;
+                        src2p += src12_stride;
+                    }
+
+                    if (!raw) {
+                        int flat = -1;
+                        for (int i = 0; i < 65536; i++) {
+                            if (div[i] != 0) {
+                                if (flat == -1) {
+                                    flat = i;
+                                } else {
+                                    flat = -1;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (flat != -1) {
+                            // Uniform color
+                            for (int i = 0; i < 65536; i++) {
+                                curve[i] = curve[flat];
+                            }
+                        } else {
+                            for (int i = 0; i < 65536; i++) {
+                                if (div[i] == 0) {
+                                    int prev = -1;
+                                    for (int p = i - 1; p >= 0; p--) {
+                                        if (div[p] != 0) {
+                                            prev = p;
+                                            break;
+                                        }
+                                    }
+
+                                    int next = -1;
+                                    for (int nn = i + 1; nn < 65536; nn++) {
+                                        if (div[nn] != 0) {
+                                            next = nn;
+                                            break;
+                                        }
+                                    }
+
+                                    // Fill missing
+                                    if (prev != -1 && next != -1) {
+                                        // curve[i] = std::min(std::max(curve[prev] + IntDiv((i - prev) * (curve[next] - curve[prev]), (next - prev)), 0), 255);
+                                        curve[i] = std::min(std::max(curve[prev] + (i - prev) * (curve[next] - curve[prev]) / (next - prev), (unsigned int)0), (unsigned int)65535);
+                                        // curve[i] = curve[prev] + (i - prev) * (curve[next] - curve[prev]) / (next - prev);
+                                        // curve[i] = curve[i] > 0 ? curve[i] : 0;
+                                        // curve[i] = curve[i] <= 65535 ? curve[i] : 65535;
+                                        sum[i] = curve[i];
+                                        div[i] = 1;
+                                    }
+                                }
+                            }
+
+                            while (div[0] == 0 || div[65535] == 0) {
+                                if (div[0] == 0) {
+                                    int first = -1;
+                                    for (int f = 0; f < 65536; f++) {
+                                        if (div[f] != 0) {
+                                            first = f;
+                                            break;
+                                        }
+                                    }
+
+                                    // Extend bottom
+                                    for (int i = 0; i < first; i++) {
+                                        if (first * 2 - i <= 65535) {
+                                            if (div[first * 2 - i] != 0) {
+                                                curve[i] = std::min(std::max(curve[first] * 2 - curve[first * 2 - i], (unsigned int)0), (unsigned int)65535);
+                                                // curve[i] = curve[first] * 2 - curve[first * 2 - i];
+                                                // curve[i] = curve[i] > 0 ? curve[i] : 0;
+                                                // curve[i] = curve[i] <= 65535 ? curve[i] : 65535;
+                                                sum[i] = curve[i];
+                                                div[i] = 1;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (div[65535] == 0) {
+                                    int last = -1;
+                                    for (int l = 65535; l >= 0; l--) {
+                                        if (div[l] != 0) {
+                                            last = l;
+                                            break;
+                                        }
+                                    }
+
+                                    // Extend top
+                                    for (int i = 65535; i > last; i--) {
+                                        if (last * 2 - i >= 0) {
+                                            if (div[last * 2 - i] != 0) {
+                                                curve[i] = std::min(std::max(curve[last] * 2 - curve[last * 2 - i], (unsigned int)0), (unsigned int)65535);
+                                                // curve[i] = curve[last] * 2 - curve[last * 2 - i];
+                                                // curve[i] = curve[i] > 0 ? curve[i] : 0;
+                                                // curve[i] = curve[i] <= 65535 ? curve[i] : 65535;
+                                                sum[i] = curve[i];
+                                                div[i] = 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Smooth curve
+                            if (smoothing_window > 0) {
+                                unsigned int sum_new;
+                                unsigned int div_new;
+
+                                memcpy(sum, curve, sizeof(curve)); // now sum is the backup of curve
+                                memset(curve, 0, sizeof(curve));
+
+                                for (int i = 0; i < 65536; i++) {
+                                    sum_new = 0;
+                                    div_new = 0;
+                                    // curve[i] = 0;
+
+                                    for (int j = -smoothing_window; j < smoothing_window; j++) {
+                                        if (i + j >= 0 && i + j < 65536) {
+                                            div_new += 1;
+                                        }
+                                    }
+
+                                    for (int j = -smoothing_window; j < smoothing_window; j++) {
+                                        if (i + j >= 0 && i + j < 65536) {
+                                            sum_new += sum[i + j];
+                                            curve[i] += sum_new / div_new;
+                                            sum_new %= div_new;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    for (int h = 0; h < src3dst_height; h++) {
+                        for (int w = 0; w < src3dst_width; w++) {
+                            dstp[w] = curve[src3p[w]];
+                        }
+                        src3p += src3dst_stride;
+                        dstp += src3dst_stride;
                     }
                 }
+
+                // if (d->show) {
+                //     fillPlane(dstp,
+                //               256 >> (plane ? d->vi.format->subSamplingW : 0),
+                //               256 >> (plane ? d->vi.format->subSamplingH : 0),
+                //               src3dst_stride,
+                //               plane ? 128 : 16);
+
+                //     if (d->process[plane]) {
+                //         curve.Show(vsapi->getWritePtr(dst, 0),
+                //                    vsapi->getStride(dst, 0),
+                //                    show_colors[plane]);
+                //     }
+                // }
             }
 
             vsapi->freeFrame(src3);
@@ -361,7 +542,7 @@ static void VS_CC MatchHistogramCreate(const VSMap *in, VSMap *out, void *userDa
 
     d.raw = !!vsapi->propGetInt(in, "raw", 0, &err);
     if (err)
-        d.raw = false;
+        d.raw = true;
 
     d.show = !!vsapi->propGetInt(in, "show", 0, &err);
     if (err)
@@ -422,8 +603,8 @@ static void VS_CC MatchHistogramCreate(const VSMap *in, VSMap *out, void *userDa
         return;
     }
 
-    if (d.vi.format->colorFamily == cmRGB || d.vi.format->bitsPerSample > 8) {
-        vsapi->setError(out, "MatchHistogram: the clips must have 8 bits per sample and must not be RGB.");
+    if (d.vi.format->colorFamily == cmRGB || d.vi.format->bitsPerSample != 16) {
+        vsapi->setError(out, "MatchHistogram: the clips must have 16 bits per sample and must not be RGB.");
         vsapi->freeNode(d.clip1);
         vsapi->freeNode(d.clip2);
         vsapi->freeNode(d.clip3);
